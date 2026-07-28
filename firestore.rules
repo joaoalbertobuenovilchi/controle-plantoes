@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function meuPerfilDoc() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data; }
+    function meuPerfil() { return meuPerfilDoc().perfil; }
+    function estouAtivo() { return meuPerfilDoc().ativo == true; }
+    function souAdmin() { return logado() && estouAtivo() && meuPerfil() == 'administrador'; }
+    function souGestor() { return logado() && estouAtivo() && (meuPerfil() == 'administrador' || meuPerfil() == 'coordenador'); }
+    function souAprovado() { return logado() && estouAtivo(); }
+
+    // Cada usuário só pode criar/ler o PRÓPRIO documento; só admin pode listar/editar todos.
+    match /usuarios/{uid} {
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth.uid == uid || souAdmin();
+      allow list: if souAdmin();
+      allow update: if souAdmin() || (request.auth.uid == uid && request.resource.data.perfil == resource.data.perfil && request.resource.data.ativo == resource.data.ativo);
+      allow delete: if souAdmin();
+    }
+
+    // Profissionais: todo usuário aprovado pode ler; só admin/coordenador editam.
+    match /profissionais/{id} {
+      allow read: if souAprovado();
+      allow write: if souGestor();
+    }
+
+    // Escalas: todo usuário aprovado pode ler; só admin/coordenador editam.
+    match /escalas/{id} {
+      allow read: if souAprovado();
+      allow write: if souGestor();
+    }
+
+    // Configurações (valores de pagamento, conversão de horas): leitura geral, edição só admin.
+    match /configuracoes/{id} {
+      allow read: if souAprovado();
+      allow write: if souAdmin();
+    }
+  }
+}
