@@ -4,37 +4,116 @@ service cloud.firestore {
 
     function logado() { return request.auth != null; }
     function meuPerfilDoc() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data; }
-    function meuPerfil() { return meuPerfilDoc().perfil; }
+    function meuPerfilId() { return meuPerfilDoc().perfil; }
     function estouAtivo() { return meuPerfilDoc().ativo == true; }
-    function souAdmin() { return logado() && estouAtivo() && meuPerfil() == 'administrador'; }
-    function souGestor() { return logado() && estouAtivo() && (meuPerfil() == 'administrador' || meuPerfil() == 'coordenador'); }
+    function souAdmin() { return logado() && estouAtivo() && meuPerfilId() == 'administrador'; }
     function souAprovado() { return logado() && estouAtivo(); }
 
-    // Cada usuário só pode criar/ler o PRÓPRIO documento; só admin pode listar/editar todos.
+    // O Administrador sempre tem acesso total (protegido contra bloqueio acidental).
+    // Para os demais perfis, a permissão de cada tela vem do documento em /perfis/{perfilId}.
+    function permissaoTela(tela) {
+      return souAdmin()
+        ? 'editar'
+        : (souAprovado() && exists(/databases/$(database)/documents/perfis/$(meuPerfilId()))
+            ? get(/databases/$(database)/documents/perfis/$(meuPerfilId())).data.permissoes[tela]
+            : 'nenhum');
+    }
+    function podeVerTela(tela)    { return souAprovado() && permissaoTela(tela) != 'nenhum'; }
+    function podeEditarTela(tela) { return souAprovado() && permissaoTela(tela) == 'editar'; }
+
+    // Cada pessoa pode criar/ler o PRÓPRIO usuário; quem tem permissão de "editar" em
+    // Usuários e Perfis pode gerenciar (inclusive criar contas novas direto pelo painel).
     match /usuarios/{uid} {
-      allow create: if request.auth != null && request.auth.uid == uid;
-      allow read: if request.auth.uid == uid || souAdmin();
-      allow list: if souAdmin();
-      allow update: if souAdmin() || (request.auth.uid == uid && request.resource.data.perfil == resource.data.perfil && request.resource.data.ativo == resource.data.ativo);
-      allow delete: if souAdmin();
+      allow create: if request.auth != null && (request.auth.uid == uid || podeEditarTela('usuarios'));
+      allow read: if request.auth.uid == uid || podeEditarTela('usuarios');
+      allow list: if podeEditarTela('usuarios');
+      allow update: if podeEditarTela('usuarios') || (request.auth.uid == uid && request.resource.data.perfil == resource.data.perfil && request.resource.data.ativo == resource.data.ativo);
+      allow delete: if podeEditarTela('usuarios');
     }
 
-    // Profissionais: todo usuário aprovado pode ler; só admin/coordenador editam.
+    // Perfis de acesso (matriz de permissões por tela) - gerenciados junto com Usuários.
+    match /perfis/{id} {
+      allow read: if souAprovado();
+      allow write: if podeEditarTela('usuarios');
+    }
+
+    function meuProfissionalId() { return souAprovado() ? meuPerfilDoc().profissionalId : null; }
+
+    // Trocas de plantão: qualquer aprovado pode ler e solicitar (para si mesmo);
+    // só o profissional convidado pode confirmar/recusar sua própria solicitação;
+    // só quem tem permissão de "editar" em Trocas (Administrador/Diretor Clínico) autoriza de fato.
+    match /trocas/{id} {
+      // "get" (buscar 1 documento pelo ID exato) é público de propósito: é o que permite o
+      // link de confirmação por e-mail (SIM/NÃO) funcionar mesmo sem o colega estar logado.
+      // O ID do documento é gerado aleatoriamente pelo Firestore e só existe dentro do link
+      // enviado por e-mail — "list" (buscar/filtrar a coleção inteira) continua exigindo login.
+      allow get: if true;
+      allow list: if souAprovado();
+      allow create: if souAprovado() && request.resource.data.profissionalOrigemId == meuProfissionalId();
+      allow update: if podeEditarTela('trocas')
+                    || (souAprovado() && resource.data.profissionalDestinoId == meuProfissionalId() && resource.data.status == 'aguardando_destino')
+                    // resposta pelo link do e-mail (sem login): só é aceita se o token enviado
+                    // bater exatamente com o token secreto gravado no documento na criação.
+                    || (resource.data.status == 'aguardando_destino'
+                        && 'tokenUsado' in request.resource.data
+                        && request.resource.data.tokenUsado == resource.data.tokenDestino);
+      allow delete: if podeEditarTela('trocas');
+    }
+
+    // Entidades (locais/unidades onde os plantões acontecem).
+    match /entidades/{id} {
+      allow read: if souAprovado();
+      allow write: if podeEditarTela('entidades');
+    }
+
+    // Profissionais: leitura para todo aprovado; edição conforme permissão da tela "profissionais".
     match /profissionais/{id} {
       allow read: if souAprovado();
-      allow write: if souGestor();
+      allow write: if podeEditarTela('profissionais');
     }
 
-    // Escalas: todo usuário aprovado pode ler; só admin/coordenador editam.
+    // Escalas (todos os tipos): leitura para todo aprovado; edição conforme permissão "escalas".
     match /escalas/{id} {
       allow read: if souAprovado();
-      allow write: if souGestor();
+      allow write: if podeEditarTela('escalas');
     }
 
-    // Configurações (valores de pagamento, conversão de horas): leitura geral, edição só admin.
+    // Configurações antigas (mantido por compatibilidade, não é mais usado pela interface).
     match /configuracoes/{id} {
       allow read: if souAprovado();
       allow write: if souAdmin();
+    }
+
+    // Tipos de escala (Plantões, Enfermagem, Técnicos, etc criados pelo usuário).
+    match /tiposEscala/{id} {
+      allow read: if souAprovado();
+      allow write: if podeEditarTela('tipos-escala');
+    }
+
+    // Valores de plantão (R$/hora por tipo de escala e categoria profissional).
+    match /valoresPlantao/{id} {
+      allow read: if souAprovado();
+      allow write: if podeEditarTela('valores-plantao');
+    }
+
+    // Competências (fechamento mensal que trava a edição da escala).
+    match /competencias/{id} {
+      allow read: if souAprovado();
+      allow write: if podeEditarTela('competencias');
+    }
+
+    // Afastamentos/Faltas (usado no Cadastro de Profissionais e nos Relatórios).
+    match /afastamentos/{id} {
+      allow read: if souAprovado();
+      allow write: if podeEditarTela('profissionais');
+    }
+
+    // Histórico de alterações na escala por troca de plantão (usado no relatório "Previsto x Realizado").
+    // É só um registro de auditoria: só o sistema grava (quando uma troca é autorizada), ninguém edita à mão.
+    match /historicoEscala/{id} {
+      allow read: if souAprovado();
+      allow create: if podeEditarTela('trocas');
+      allow update, delete: if false;
     }
   }
 }
