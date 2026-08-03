@@ -952,21 +952,30 @@ async function statusCompetencia(ano, mes) {
   return snap.exists ? snap.data().status : "aberta";
 }
 
+let ESTADO_COMPETENCIAS = { anoDe: new Date().getFullYear()-1, anoAte: new Date().getFullYear()+1 };
+
 async function renderCompetencias() {
   const vp = document.getElementById("viewport");
   vp.innerHTML = `<div class="cartao">Carregando...</div>`;
   const hoje = new Date();
+  const { anoDe, anoAte } = ESTADO_COMPETENCIAS;
   const periodos = [];
-  for (let ano = hoje.getFullYear()-1; ano <= hoje.getFullYear()+1; ano++) {
+  for (let ano = anoDe; ano <= anoAte; ano++) {
     for (let mes = 1; mes <= 12; mes++) periodos.push({ ano, mes });
   }
   const snap = await db.collection("competencias").get();
   const fechadas = {}; snap.docs.forEach(d => fechadas[d.id] = d.data());
   const souAdmin = podeEditarTela("competencias");
+  const anosOpcoes = []; for (let a = hoje.getFullYear()-10; a <= hoje.getFullYear()+10; a++) anosOpcoes.push(a);
 
   vp.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>Competências</h2><div class="desc">Todos os meses ficam sempre disponíveis para consulta. Fechar uma competência apenas bloqueia novas edições na escala daquele mês, preservando o histórico para relatórios futuros.</div></div>
+      <div><h2>Competências</h2><div class="desc">O sistema gera os meses automaticamente (não precisa criar nenhum) — todos ficam sempre disponíveis para consulta. Fechar uma competência apenas bloqueia novas edições na escala daquele mês, preservando o histórico para relatórios futuros.</div></div>
+    </div>
+    <div class="barra-ferramentas">
+      <label style="font-size:.8rem">Mostrar de <select id="selAnoDe">${anosOpcoes.map(a=>`<option value="${a}" ${a===anoDe?"selected":""}>${a}</option>`).join("")}</select></label>
+      <label style="font-size:.8rem">até <select id="selAnoAte">${anosOpcoes.map(a=>`<option value="${a}" ${a===anoAte?"selected":""}>${a}</option>`).join("")}</select></label>
+      <button class="btn btn-secundario" id="btnAtualizarAnos">Atualizar</button>
     </div>
     <div class="cartao" style="overflow:auto;max-height:70vh">
       <table class="tabela">
@@ -985,6 +994,13 @@ async function renderCompetencias() {
         </tbody>
       </table>
     </div>`;
+
+  document.getElementById("btnAtualizarAnos").addEventListener("click", () => {
+    ESTADO_COMPETENCIAS.anoDe = +document.getElementById("selAnoDe").value;
+    ESTADO_COMPETENCIAS.anoAte = +document.getElementById("selAnoAte").value;
+    if (ESTADO_COMPETENCIAS.anoDe > ESTADO_COMPETENCIAS.anoAte) { alert('O ano "de" precisa ser menor ou igual ao "até".'); return; }
+    renderCompetencias();
+  });
 
   if (souAdmin) {
     vp.querySelectorAll(".btnToggleComp").forEach(btn => btn.addEventListener("click", async () => {
