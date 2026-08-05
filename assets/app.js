@@ -59,6 +59,7 @@ const TELAS_PERMISSAO = [
   { id:"valores-plantao", label:"Valores de Plantões" },
   { id:"competencias",    label:"Competências" },
   { id:"trocas",          label:"Trocas de Plantão" },
+  { id:"ponto",           label:"Ponto Digital" },
   { id:"usuarios",        label:"Usuários e Perfis" },
 ];
 const NIVEIS_PERMISSAO = { nenhum:"Sem acesso", ver:"Visualizar", editar:"Editar" };
@@ -68,15 +69,15 @@ const PERFIS_PADRAO = [
   { id:"administrador", nome:"Administrador", cor:"#c0392b", protegido:true,
     permissoes: Object.fromEntries(TELAS_PERMISSAO.map(t=>[t.id,"editar"])) },
   { id:"diretor_clinico", nome:"Diretor(a) Clínico(a)", cor:"#7b2cbf", protegido:false,
-    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"ver", entidades:"ver", relatorios:"ver", fechamento:"ver", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"editar", usuarios:"nenhum" } },
+    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"ver", entidades:"ver", relatorios:"ver", fechamento:"ver", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"editar", ponto:"ver", usuarios:"nenhum" } },
   { id:"coordenador", nome:"Coordenador de Escalas", cor:"#0b5394", protegido:false,
-    permissoes: { dashboard:"ver", escalas:"editar", profissionais:"editar", entidades:"ver", relatorios:"ver", fechamento:"ver", "tipos-escala":"editar", "valores-plantao":"nenhum", competencias:"editar", trocas:"ver", usuarios:"nenhum" } },
+    permissoes: { dashboard:"ver", escalas:"editar", profissionais:"editar", entidades:"ver", relatorios:"ver", fechamento:"ver", "tipos-escala":"editar", "valores-plantao":"nenhum", competencias:"editar", trocas:"ver", ponto:"editar", usuarios:"nenhum" } },
   { id:"medico", nome:"Médico(a)", cor:"#1e8e5a", protegido:false,
-    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"ver", entidades:"nenhum", relatorios:"ver", fechamento:"nenhum", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"ver", usuarios:"nenhum" } },
+    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"ver", entidades:"nenhum", relatorios:"ver", fechamento:"nenhum", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"ver", ponto:"ver", usuarios:"nenhum" } },
   { id:"enfermeiro", nome:"Enfermeiro(a)", cor:"#1e8e5a", protegido:false,
-    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"ver", entidades:"nenhum", relatorios:"ver", fechamento:"nenhum", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"ver", usuarios:"nenhum" } },
+    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"ver", entidades:"nenhum", relatorios:"ver", fechamento:"nenhum", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"ver", ponto:"ver", usuarios:"nenhum" } },
   { id:"tecnico_enfermagem", nome:"Técnico(a) de Enfermagem", cor:"#6b7280", protegido:false,
-    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"nenhum", entidades:"nenhum", relatorios:"nenhum", fechamento:"nenhum", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"ver", usuarios:"nenhum" } },
+    permissoes: { dashboard:"ver", escalas:"ver", profissionais:"nenhum", entidades:"nenhum", relatorios:"nenhum", fechamento:"nenhum", "tipos-escala":"nenhum", "valores-plantao":"nenhum", competencias:"nenhum", trocas:"ver", ponto:"ver", usuarios:"nenhum" } },
 ];
 
 const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -289,7 +290,7 @@ function buscarValorHora(setorId, categoria) {
 // 4. SHELL DO APP + ROTEAMENTO
 // -------------------------------------------------------------------------
 function nomePerfil(id) { if (id === "pendente") return "Aguardando aprovação"; return ESTADO.cachePerfis.find(p=>p.id===id)?.nome || id; }
-function telaBaseDe(id) { return (id.startsWith("escala-") || id === "consultar-escalas") ? "escalas" : id; }
+function telaBaseDe(id) { return (id.startsWith("escala-") || id === "consultar-escalas" || id === "escalas-hub") ? "escalas" : id; }
 function nivelAcesso(telaBase) {
   if (ESTADO.usuarioDoc.perfil === "administrador") return "editar"; // administrador sempre tem acesso total, protegido contra bloqueio acidental
   const perfil = ESTADO.cachePerfis.find(p => p.id === ESTADO.usuarioDoc.perfil);
@@ -300,19 +301,18 @@ function podeVerTela(id) { return nivelAcesso(telaBaseDe(id)) !== "nenhum"; }
 function podeEditarTela(id) { return nivelAcesso(telaBaseDe(id)) === "editar"; }
 
 function montarNav() {
-  const navEscalas = ESTADO.cacheTiposEscala.map(t => ({ id:`escala-${t.id}`, label:`Escala · ${t.nome}${t.entidadeId?` (${nomeEntidade(t.entidadeId)})`:""}`, icone:"📋" }));
   return [
     // Ordem pensada para seguir a sequência natural de alimentação do sistema:
     // primeiro os cadastros-base (quem, onde, o quê), depois a operação do dia a dia,
     // e por último acompanhamento/relatórios.
     { id:"entidades", label:"1. Cadastro de Entidades", icone:"🏢" },
     { id:"profissionais", label:"2. Cadastro de Profissionais", icone:"👥" },
-    { id:"tipos-escala", label:"3. Cadastro de Tipos de Plantão", icone:"🗂️" },
+    { id:"escalas-hub", label:"3. Gestão de Escalas", icone:"🗂️" },
     { id:"valores-plantao", label:"4. Valores de Plantões", icone:"💰" },
     { id:"usuarios", label:"5. Usuários e Perfis", icone:"🔑" },
     { id:"competencias", label:"6. Competências", icone:"📅" },
-    ...navEscalas,
     { id:"consultar-escalas", label:"Consultar Escalas", icone:"🗓️" },
+    { id:"ponto", label:"Ponto Digital", icone:"⏱️" },
     { id:"trocas", label:"Trocas de Plantão", icone:"🔄" },
     { id:"relatorios", label:"Relatórios", icone:"📈" },
     { id:"fechamento", label:"Fechamento", icone:"🧾" },
@@ -320,15 +320,18 @@ function montarNav() {
   ];
 }
 
+// "tipos-escala" e cada "escala-{id}" continuam existindo como telas de verdade (permissão,
+// dados etc.) mas não aparecem soltas no menu — são acessadas por dentro do hub "Gestão de Escalas".
 function podeAcessar(nav, telaId) {
-  return nav.some(n => n.id === telaId) && podeVerTela(telaId);
+  return podeVerTela(telaId);
 }
 
 function renderApp() {
   const perfil = ESTADO.usuarioDoc.perfil;
   const NAV = montarNav();
+  const dentroDoHubEscalas = ESTADO.telaAtual === "tipos-escala" || ESTADO.telaAtual.startsWith("escala-");
   const navHtml = NAV.filter(n => podeVerTela(n.id)).map(n => `
-    <div class="nav-item ${ESTADO.telaAtual === n.id ? "ativo" : ""}" data-tela="${n.id}">
+    <div class="nav-item ${(ESTADO.telaAtual === n.id || (n.id==="escalas-hub" && dentroDoHubEscalas)) ? "ativo" : ""}" data-tela="${n.id}">
       <span>${n.icone}</span><span>${n.label}</span>
     </div>`).join("");
 
@@ -368,6 +371,8 @@ function renderApp() {
     "relatorios": renderRelatorios,
     "fechamento": renderFechamento,
     "consultar-escalas": renderConsultarEscalas,
+    "ponto": renderPontoDigital,
+    "escalas-hub": renderEscalasHub,
     "tipos-escala": renderTiposEscala,
     "valores-plantao": renderValoresPlantao,
     "competencias": renderCompetencias,
@@ -687,7 +692,7 @@ async function renderEntidades() {
 
 function modalEntidade(entidade) {
   const editando = !!entidade;
-  const e = entidade || { cnpj:"",razaoSocial:"",nomeFantasia:"",endereco:"",bairro:"",cep:"",telefone:"",email:"",ativo:true };
+  const e = entidade || { cnpj:"",razaoSocial:"",nomeFantasia:"",endereco:"",bairro:"",cep:"",telefone:"",email:"",ativo:true,latitude:"",longitude:"",raioMetros:200 };
   const div = document.createElement("div");
   div.className = "modal-fundo";
   div.innerHTML = `
@@ -705,13 +710,30 @@ function modalEntidade(entidade) {
         <div class="campo"><label>Telefone</label><input id="eTelefone" placeholder="(00) 0000-0000" value="${escapeHtml(e.telefone)}"></div>
         <div class="campo"><label>E-mail</label><input type="email" id="eEmail" value="${escapeHtml(e.email)}"></div>
       </div>
-      <div class="campo"><label><input type="checkbox" id="eAtivo" ${e.ativo!==false?"checked":""}> Ativa</label></div>
+      <label style="font-size:.78rem;font-weight:700;color:var(--azul-esc);text-transform:uppercase">Localização (para o Ponto Digital por geolocalização)</label>
+      <div class="campos-2" style="margin-top:8px">
+        <div class="campo"><label>Latitude</label><input id="eLat" placeholder="Ex.: -21.2989" value="${e.latitude??""}"></div>
+        <div class="campo"><label>Longitude</label><input id="eLng" placeholder="Ex.: -48.9128" value="${e.longitude??""}"></div>
+        <div class="campo"><label>Distância máxima permitida (metros)</label><input type="number" id="eRaio" value="${e.raioMetros??200}"></div>
+      </div>
+      <button type="button" class="btn btn-secundario" id="btnUsarLocalAtual">📍 Usar minha localização atual</button>
+      <p style="font-size:.75rem;color:#6b7280;margin-top:6px">Fique parado dentro da unidade e clique no botão acima — ele preenche latitude/longitude automaticamente. A partir dessa distância, o Ponto Digital <b>bloqueia</b> a marcação por biometria/senha (só um gestor pode lançar manualmente nesse caso).</p>
+      <div class="campo" style="margin-top:10px"><label><input type="checkbox" id="eAtivo" ${e.ativo!==false?"checked":""}> Ativa</label></div>
       <div class="acoes">
         <button class="btn btn-secundario" id="mCancelar">Cancelar</button>
         <button class="btn btn-primario" id="mSalvar">Salvar</button>
       </div>
     </div>`;
   document.body.appendChild(div);
+  div.querySelector("#btnUsarLocalAtual").addEventListener("click", () => {
+    if (!navigator.geolocation) { alert("Seu navegador não suporta geolocalização."); return; }
+    const btn = div.querySelector("#btnUsarLocalAtual"); btn.disabled = true; btn.textContent = "Obtendo localização...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { div.querySelector("#eLat").value = pos.coords.latitude.toFixed(6); div.querySelector("#eLng").value = pos.coords.longitude.toFixed(6); btn.disabled=false; btn.textContent="📍 Usar minha localização atual"; },
+      (err) => { alert("Não foi possível obter sua localização: " + err.message); btn.disabled=false; btn.textContent="📍 Usar minha localização atual"; },
+      { enableHighAccuracy:true, timeout:15000 }
+    );
+  });
   div.querySelector("#mCancelar").addEventListener("click", () => div.remove());
   div.querySelector("#mSalvar").addEventListener("click", async () => {
     const dados = {
@@ -723,6 +745,9 @@ function modalEntidade(entidade) {
       cep: div.querySelector("#eCep").value.trim(),
       telefone: div.querySelector("#eTelefone").value.trim(),
       email: div.querySelector("#eEmail").value.trim(),
+      latitude: div.querySelector("#eLat").value ? +div.querySelector("#eLat").value : null,
+      longitude: div.querySelector("#eLng").value ? +div.querySelector("#eLng").value : null,
+      raioMetros: +div.querySelector("#eRaio").value || 200,
       ativo: div.querySelector("#eAtivo").checked,
     };
     if (!dados.razaoSocial && !dados.nomeFantasia) { alert("Informe ao menos a Razão Social ou o Nome Fantasia."); return; }
@@ -732,6 +757,51 @@ function modalEntidade(entidade) {
     await recarregarEntidades();
     renderEntidades();
   });
+}
+
+// -------------------------------------------------------------------------
+// 5c. GESTÃO DE ESCALAS (hub único: criar tipos de escala + montar cada escala)
+// -------------------------------------------------------------------------
+async function renderEscalasHub() {
+  const vp = document.getElementById("viewport");
+  vp.innerHTML = `<div class="cartao">Carregando...</div>`;
+  await recarregarTiposEscala();
+  await carregarEntidades();
+  const lista = ESTADO.cacheTiposEscala;
+  const podeGerenciarTipos = podeVerTela("tipos-escala");
+
+  vp.innerHTML = `
+    <div class="cabecalho-pagina">
+      <div><h2>Gestão de Escalas</h2><div class="desc">Crie os tipos de escala e monte cada uma delas a partir daqui.</div></div>
+    </div>
+
+    ${podeGerenciarTipos ? `
+    <div class="cartao" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div>
+        <h3 style="margin:0 0 4px">🗂️ Tipos de Escala</h3>
+        <div class="desc" style="margin:0">Cadastre os tipos (Plantões, Enfermagem, Técnicos...), seus códigos, horários e cores.</div>
+      </div>
+      <button class="btn btn-primario" id="btnAbrirTiposEscala">Gerenciar Tipos de Escala</button>
+    </div>` : ""}
+
+    <h3 style="margin:20px 0 10px">🛠️ Montar Escala</h3>
+    <div class="grade-cartoes">
+      ${lista.map(t => `
+        <div class="cartao">
+          <h3 style="margin:0 0 2px">${escapeHtml(t.nome)}</h3>
+          ${t.entidadeId ? `<div style="font-size:.78rem;color:#6b7280;margin-bottom:10px">🏢 ${escapeHtml(nomeEntidade(t.entidadeId))}</div>` : `<div style="margin-bottom:10px"></div>`}
+          <div class="legenda-codigos" style="margin-bottom:12px">
+            ${(t.codigos||[]).slice(0,6).map(c => `<span style="background:${c.cor};color:${corTexto(c.cor)}">${c.codigo}</span>`).join("")}
+          </div>
+          <button class="btn btn-primario btnMontarEscala" data-id="${t.id}" style="width:100%">Montar / Editar</button>
+        </div>`).join("") || `<div class="cartao">Nenhum tipo de escala cadastrado ainda. ${podeGerenciarTipos ? 'Clique em "Gerenciar Tipos de Escala" acima para criar o primeiro.' : ""}</div>`}
+    </div>`;
+
+  document.getElementById("btnAbrirTiposEscala")?.addEventListener("click", () => { ESTADO.telaAtual = "tipos-escala"; renderApp(); });
+  vp.querySelectorAll(".btnMontarEscala").forEach(btn => btn.addEventListener("click", () => {
+    ESTADO.telaAtual = "escala-" + btn.dataset.id;
+    renderApp();
+  }));
 }
 
 // -------------------------------------------------------------------------
@@ -746,7 +816,7 @@ async function renderTiposEscala() {
 
   vp.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>Tipos de Escala</h2><div class="desc">Crie quantas escalas quiser: Plantões, Enfermagem, Técnicos, Motoristas etc. — e vincule cada uma a uma entidade.</div></div>
+      <div><button class="link-alt" style="margin:0 0 4px;text-align:left" id="btnVoltarHubTipos">← Voltar para Gestão de Escalas</button><h2>Tipos de Escala</h2><div class="desc">Crie quantas escalas quiser: Plantões, Enfermagem, Técnicos, Motoristas etc. — e vincule cada uma a uma entidade.</div></div>
       ${podeEditar ? `<button class="btn btn-primario" id="btnNovoTipo">+ Novo tipo de escala</button>` : ""}
     </div>
     <div class="grade-cartoes">
@@ -767,6 +837,8 @@ async function renderTiposEscala() {
           </div>
         </div>`).join("")}
     </div>`;
+
+  document.getElementById("btnVoltarHubTipos").addEventListener("click", () => { ESTADO.telaAtual = "escalas-hub"; renderApp(); });
 
   if (!podeEditar) return;
   document.getElementById("btnNovoTipo").addEventListener("click", () => modalTipoEscala());
@@ -1053,7 +1125,7 @@ async function renderEscala(setorId) {
 
   vp.innerHTML = `
     <div class="cabecalho-pagina">
-      <div><h2>${escapeHtml(tipo.nome)}</h2><div class="desc">${tipo.entidadeId?`🏢 ${escapeHtml(nomeEntidade(tipo.entidadeId))} — `:""}${fechada ? "🔒 Competência fechada — somente leitura." : (podeEditar ? "Clique numa célula para alterar o código do plantão." : "Modo somente leitura.")}</div></div>
+      <div><button class="link-alt" style="margin:0 0 4px;text-align:left" id="btnVoltarHubEscala">← Voltar para Gestão de Escalas</button><h2>${escapeHtml(tipo.nome)}</h2><div class="desc">${tipo.entidadeId?`🏢 ${escapeHtml(nomeEntidade(tipo.entidadeId))} — `:""}${fechada ? "🔒 Competência fechada — somente leitura." : (podeEditar ? "Clique numa célula para alterar o código do plantão." : "Modo somente leitura.")}</div></div>
     </div>
     <div class="barra-ferramentas">
       <select id="selMes">${MESES.map((m,i)=>`<option value="${i+1}" ${i+1===mes?"selected":""}>${m}</option>`).join("")}</select>
@@ -1108,6 +1180,7 @@ async function renderEscala(setorId) {
       </div>
     </div>`;
 
+  document.getElementById("btnVoltarHubEscala").addEventListener("click", () => { ESTADO.telaAtual = "escalas-hub"; renderApp(); });
   document.getElementById("selMes").addEventListener("change", e => { ESTADO.escalaAtual.mes = +e.target.value; renderEscala(setorId); });
   document.getElementById("selAno").addEventListener("change", e => { ESTADO.escalaAtual.ano = +e.target.value; renderEscala(setorId); });
   document.getElementById("btnImprimirEscala").addEventListener("click", () => window.print());
@@ -1728,6 +1801,11 @@ const CATALOGO_RELATORIOS = [
   { id:"qtd-plantoes",        nome:"Quantidade de Plantões" },
   { id:"qtd-plantoes-hora",   nome:"Quantidade de Plantões por Hora" },
   { id:"trocas-passagens",    nome:"Troca e Passagens entre Profissionais" },
+  { id:"ponto-folha-individual", nome:"Ponto Digital · Folha de Ponto Individual" },
+  { id:"ponto-horas-trabalhadas", nome:"Ponto Digital · Horas Trabalhadas (Individual e Consolidado)" },
+  { id:"ponto-x-escala",      nome:"Ponto Digital · Ponto x Escala (previsto x batido)" },
+  { id:"ponto-fora-raio",     nome:"Ponto Digital · Registros Fora do Raio Permitido" },
+  { id:"ponto-ausencias",     nome:"Ponto Digital · Ausências (escalado sem bater ponto)" },
 ];
 
 function cabecalhoRelatorioRangeHtml(titulo, dataInicio, dataFim) {
@@ -1856,6 +1934,11 @@ async function gerarRelatorioCatalogo() {
     "qtd-plantoes": relQtdPlantoes,
     "qtd-plantoes-hora": relQtdPlantoesPorHora,
     "trocas-passagens": relTrocasPassagens,
+    "ponto-folha-individual": relPontoFolhaIndividual,
+    "ponto-horas-trabalhadas": relPontoHorasTrabalhadas,
+    "ponto-x-escala": relPontoXEscala,
+    "ponto-fora-raio": relPontoForaRaio,
+    "ponto-ausencias": relPontoAusencias,
   };
   const ctx = { setorIds, profFiltroId, dataInicio, dataFim, incluirBancarios, profissionais, nomeSetorFn, area, tipoRel };
   try { await FUNCOES[tipoRel](ctx); }
@@ -2120,6 +2203,531 @@ async function relTrocasPassagens(ctx) {
   montarTabelaRelatorio(ctx.area, "Troca e Passagens entre Profissionais", ctx.dataInicio, ctx.dataFim,
     ["Data do plantão","Escala","De","Para","Motivo","Status"],
     linhas.map(t=>[fmtData2(t.dia)+"/"+fmtData2(t.mes)+"/"+t.ano, t.setorNome, t.profissionalOrigemNome, t.profissionalDestinoNome, t.motivo||"-", t.status]));
+}
+
+// ---- Relatórios do Ponto Digital ----
+async function buscarPontosPeriodo(dataInicioStr, dataFimStr, profFiltroId) {
+  const inicio = new Date(dataInicioStr+"T00:00:00");
+  const fim = new Date(dataFimStr+"T23:59:59");
+  let query = db.collection("pontos");
+  query = profFiltroId ? query.where("profissionalId","==",profFiltroId) : query.limit(3000);
+  const snap = await query.get();
+  return snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(p => p.criadoEm?.toDate && p.criadoEm.toDate() >= inicio && p.criadoEm.toDate() <= fim)
+    .sort((a,b)=>(a.criadoEm?.toMillis()||0)-(b.criadoEm?.toMillis()||0));
+}
+function calcularHorasDia(regsDoDia) {
+  const porTipo = {}; regsDoDia.forEach(r => { if (!porTipo[r.tipo]) porTipo[r.tipo] = r; });
+  const entrada = porTipo["Entrada"]?.criadoEm?.toDate();
+  const saida = porTipo["Saída"]?.criadoEm?.toDate();
+  if (!entrada || !saida) return null;
+  let ms = saida - entrada;
+  const saiInt = porTipo["Saída Intervalo"]?.criadoEm?.toDate();
+  const voltaInt = porTipo["Retorno Intervalo"]?.criadoEm?.toDate();
+  if (saiInt && voltaInt) ms -= (voltaInt - saiInt);
+  return ms > 0 ? ms/3600000 : null;
+}
+
+async function relPontoFolhaIndividual(ctx) {
+  if (!ctx.profFiltroId) { ctx.area.innerHTML = `<p>Selecione um profissional no filtro acima para gerar a Folha de Ponto Individual.</p>`; return; }
+  const registros = await buscarPontosPeriodo(ctx.dataInicio, ctx.dataFim, ctx.profFiltroId);
+  const porDia = {};
+  registros.forEach(r => { const dia = r.criadoEm.toDate().toISOString().slice(0,10); (porDia[dia] ||= []).push(r); });
+  const linhas = []; let totalGeral = 0;
+  Object.keys(porDia).sort().forEach(dia => {
+    const regsDia = porDia[dia].sort((a,b)=>a.criadoEm.toMillis()-b.criadoEm.toMillis());
+    regsDia.forEach(r => linhas.push([fmtDataBR(dia), r.tipo, r.criadoEm.toDate().toLocaleTimeString("pt-BR"),
+      r.entidadeNome||"-", r.manual?("Manual: "+(r.justificativa||"")):(r.verificacaoFacial?.sucesso?"Facial":"Senha"), r.dentroDoRaio===false?"⚠️ Fora do raio":""]));
+    const horas = calcularHorasDia(regsDia);
+    if (horas!=null) { linhas.push([`Total do dia ${fmtDataBR(dia)}`,"","","","",horas.toFixed(2)+"h"]); totalGeral += horas; }
+  });
+  const nomeProf = ctx.profissionais.find(p=>p.id===ctx.profFiltroId)?.nome || "";
+  montarTabelaRelatorio(ctx.area, `Folha de Ponto Individual — ${nomeProf}`, ctx.dataInicio, ctx.dataFim,
+    ["Data","Tipo","Horário","Local","Verificação","Observação"], linhas, ["TOTAL DO PERÍODO","","","","",totalGeral.toFixed(2)+"h"]);
+}
+
+async function relPontoHorasTrabalhadas(ctx) {
+  const registros = await buscarPontosPeriodo(ctx.dataInicio, ctx.dataFim, ctx.profFiltroId);
+  const porProfDia = {};
+  registros.forEach(r => {
+    const dia = r.criadoEm.toDate().toISOString().slice(0,10);
+    const chave = r.profissionalId+"|"+dia;
+    (porProfDia[chave] ||= { profId:r.profissionalId, profNome:r.profissionalNome, dia, regs:[] }).regs.push(r);
+  });
+  const porProf = {};
+  Object.values(porProfDia).forEach(grupo => {
+    const horas = calcularHorasDia(grupo.regs.sort((a,b)=>a.criadoEm.toMillis()-b.criadoEm.toMillis()));
+    if (horas==null) return;
+    (porProf[grupo.profId] ||= { nome:grupo.profNome, dias:[], total:0 });
+    porProf[grupo.profId].dias.push([fmtDataBR(grupo.dia), horas.toFixed(2)+"h"]);
+    porProf[grupo.profId].total += horas;
+  });
+  const linhas = []; let totalGeral = 0;
+  Object.values(porProf).forEach(p => {
+    linhas.push([`— ${p.nome} —`,""]);
+    p.dias.forEach(d=>linhas.push(d));
+    linhas.push([`Subtotal ${p.nome}`, p.total.toFixed(2)+"h"]);
+    totalGeral += p.total;
+  });
+  montarTabelaRelatorio(ctx.area, "Ponto Digital · Horas Trabalhadas (Individual e Consolidado)", ctx.dataInicio, ctx.dataFim,
+    ["Data / Profissional","Horas"], linhas, ["TOTAL CONSOLIDADO", totalGeral.toFixed(2)+"h"]);
+}
+
+async function relPontoXEscala(ctx) {
+  const plantoes = await buscarPlantoesPeriodo(ctx.setorIds, ctx.dataInicio, ctx.dataFim);
+  const filtrados = plantoes.filter(p => !ctx.profFiltroId || p.profissionalId === ctx.profFiltroId);
+  const registrosPonto = await buscarPontosPeriodo(ctx.dataInicio, ctx.dataFim, ctx.profFiltroId);
+  const linhas = filtrados.map(p => {
+    const info = mapaCodigosDoSetor(p.setorId)[p.codigo];
+    const prof = ctx.profissionais.find(x=>x.id===p.profissionalId);
+    const diaStr = `${p.ano}-${fmtData2(p.mes)}-${fmtData2(p.dia)}`;
+    const entradaBatida = registrosPonto.find(r => r.profissionalId===p.profissionalId && r.tipo==="Entrada" && r.criadoEm.toDate().toISOString().slice(0,10)===diaStr);
+    const previsto = info?.inicio || "-";
+    const batido = entradaBatida ? entradaBatida.criadoEm.toDate().toLocaleTimeString("pt-BR").slice(0,5) : "NÃO BATEU";
+    let diferenca = "-";
+    if (entradaBatida && info?.inicio) {
+      const [ph,pm] = info.inicio.split(":").map(Number);
+      const b = entradaBatida.criadoEm.toDate();
+      const diffMin = (b.getHours()*60+b.getMinutes()) - (ph*60+pm);
+      diferenca = (diffMin>0?"+":"") + diffMin + " min";
+    }
+    return [fmtData2(p.dia)+"/"+fmtData2(p.mes)+"/"+p.ano, prof?.nome||"?", ctx.nomeSetorFn(p.setorId), p.codigo, previsto, batido, diferenca];
+  });
+  montarTabelaRelatorio(ctx.area, "Ponto Digital · Ponto x Escala (previsto x batido)", ctx.dataInicio, ctx.dataFim,
+    ["Data","Profissional","Escala","Código","Previsto","Batido (Entrada)","Diferença"], linhas);
+}
+
+async function relPontoForaRaio(ctx) {
+  const registros = await buscarPontosPeriodo(ctx.dataInicio, ctx.dataFim, ctx.profFiltroId);
+  const linhas = registros.filter(r=>r.dentroDoRaio===false)
+    .map(r=>[r.criadoEm.toDate().toLocaleString("pt-BR"), r.profissionalNome, r.tipo, r.entidadeNome||"-", (r.distanciaMetros??"-")+"m"]);
+  montarTabelaRelatorio(ctx.area, "Ponto Digital · Registros Fora do Raio Permitido", ctx.dataInicio, ctx.dataFim,
+    ["Data/Hora","Profissional","Tipo","Local","Distância"], linhas);
+}
+
+async function relPontoAusencias(ctx) {
+  const plantoes = await buscarPlantoesPeriodo(ctx.setorIds, ctx.dataInicio, ctx.dataFim);
+  const filtrados = plantoes.filter(p => !ctx.profFiltroId || p.profissionalId === ctx.profFiltroId);
+  const registrosPonto = await buscarPontosPeriodo(ctx.dataInicio, ctx.dataFim, ctx.profFiltroId);
+  const linhas = [];
+  filtrados.forEach(p => {
+    const diaStr = `${p.ano}-${fmtData2(p.mes)}-${fmtData2(p.dia)}`;
+    const bateu = registrosPonto.some(r => r.profissionalId===p.profissionalId && r.criadoEm.toDate().toISOString().slice(0,10)===diaStr);
+    if (!bateu) {
+      const prof = ctx.profissionais.find(x=>x.id===p.profissionalId);
+      linhas.push([fmtData2(p.dia)+"/"+fmtData2(p.mes)+"/"+p.ano, prof?.nome||"?", ctx.nomeSetorFn(p.setorId), p.codigo]);
+    }
+  });
+  montarTabelaRelatorio(ctx.area, "Ponto Digital · Ausências (escalado sem bater ponto)", ctx.dataInicio, ctx.dataFim,
+    ["Data","Profissional","Escala","Código"], linhas);
+}
+
+// -------------------------------------------------------------------------
+// 10d. PONTO DIGITAL (biometria facial + geolocalização, roda 100% no navegador)
+// -------------------------------------------------------------------------
+const FACE_MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
+const LIMIAR_RECONHECIMENTO_FACIAL = 0.5; // quanto menor, mais rígido (0.4~0.6 é a faixa usual)
+const TIPOS_PONTO = ["Entrada","Saída Intervalo","Retorno Intervalo","Saída"];
+const TEXTO_CONSENTIMENTO_BIOMETRIA = `Ao continuar, você concorda que sua imagem facial seja processada, no seu
+próprio navegador, para gerar um "molde" matemático do seu rosto (não a foto em si), usado exclusivamente para
+confirmar sua identidade ao bater o ponto. Esse molde fica guardado de forma restrita, vinculado só ao seu
+cadastro, e você pode revogar este consentimento e apagar seus dados biométricos a qualquer momento nesta mesma
+tela. Se preferir não usar biometria, você pode bater o ponto normalmente confirmando com sua senha.`;
+
+let ESTADO_PONTO = { modelosCarregados:false, streamAtivo:null };
+
+async function carregarModelosFace() {
+  if (ESTADO_PONTO.modelosCarregados) return;
+  await faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL);
+  await faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL);
+  await faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL);
+  ESTADO_PONTO.modelosCarregados = true;
+}
+
+async function iniciarCamera(videoEl) {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:"user" }, audio:false });
+  videoEl.srcObject = stream;
+  await videoEl.play();
+  ESTADO_PONTO.streamAtivo = stream;
+  return stream;
+}
+function pararCamera() {
+  ESTADO_PONTO.streamAtivo?.getTracks().forEach(t=>t.stop());
+  ESTADO_PONTO.streamAtivo = null;
+}
+
+async function capturarDescritorFacial(videoEl) {
+  const deteccao = await faceapi.detectSingleFace(videoEl, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks().withFaceDescriptor();
+  return deteccao ? Array.from(deteccao.descriptor) : null;
+}
+
+function distanciaMetros(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = g => g*Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function obterGeolocalizacao() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("Este navegador não suporta geolocalização.")); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat:pos.coords.latitude, lng:pos.coords.longitude, precisao:pos.coords.accuracy }),
+      err => reject(new Error("Não foi possível obter sua localização: " + err.message)),
+      { enableHighAccuracy:true, timeout:15000 }
+    );
+  });
+}
+
+async function carregarBiometria(profId) {
+  const snap = await db.collection("biometriaFacial").doc(profId).get();
+  return snap.exists ? snap.data() : null;
+}
+
+// ---- Consentimento + cadastro da biometria ----
+function modalConsentimentoBiometria(profId, aoAceitar) {
+  const div = document.createElement("div");
+  div.className = "modal-fundo";
+  div.innerHTML = `
+    <div class="modal">
+      <h3>🔒 Antes de continuar</h3>
+      <p style="font-size:.85rem;line-height:1.6;white-space:pre-line">${escapeHtml(TEXTO_CONSENTIMENTO_BIOMETRIA)}</p>
+      <div class="campo"><label><input type="checkbox" id="cbAceito"> Li e concordo em cadastrar minha biometria facial para uso no Ponto Digital.</label></div>
+      <div class="acoes">
+        <button class="btn btn-secundario" id="mCancelar">Cancelar</button>
+        <button class="btn btn-primario" id="mAceitar">Continuar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelector("#mCancelar").addEventListener("click", () => div.remove());
+  div.querySelector("#mAceitar").addEventListener("click", () => {
+    if (!div.querySelector("#cbAceito").checked) { alert("Marque a caixa de concordância para continuar."); return; }
+    div.remove();
+    aoAceitar();
+  });
+}
+
+function modalCadastrarBiometria(profId, profNome) {
+  const div = document.createElement("div");
+  div.className = "modal-fundo";
+  div.innerHTML = `
+    <div class="modal">
+      <h3>📷 Cadastrar biometria facial — ${escapeHtml(profNome)}</h3>
+      <p style="font-size:.82rem;color:#6b7280">Posicione seu rosto bem iluminado, olhando para a câmera, e clique em "Capturar".</p>
+      <video id="videoCadBio" autoplay muted playsinline style="width:100%;border-radius:8px;background:#000"></video>
+      <p id="statusCadBio" style="font-size:.82rem;color:#6b7280;margin-top:8px">Carregando câmera...</p>
+      <div class="acoes">
+        <button class="btn btn-secundario" id="mCancelar">Cancelar</button>
+        <button class="btn btn-primario" id="mCapturar" disabled>Capturar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  const video = div.querySelector("#videoCadBio");
+  const status = div.querySelector("#statusCadBio");
+  const btnCapturar = div.querySelector("#mCapturar");
+
+  function fechar() { pararCamera(); div.remove(); }
+  div.querySelector("#mCancelar").addEventListener("click", fechar);
+
+  (async () => {
+    try {
+      await carregarModelosFace();
+      await iniciarCamera(video);
+      status.textContent = "Pronto! Olhe para a câmera e clique em Capturar.";
+      btnCapturar.disabled = false;
+    } catch (err) { status.textContent = "Erro ao acessar a câmera: " + err.message; }
+  })();
+
+  btnCapturar.addEventListener("click", async () => {
+    btnCapturar.disabled = true; status.textContent = "Processando...";
+    const descritor = await capturarDescritorFacial(video);
+    if (!descritor) { status.textContent = "Não conseguimos identificar um rosto. Tente novamente com mais luz."; btnCapturar.disabled = false; return; }
+    await db.collection("biometriaFacial").doc(profId).set({
+      profissionalId: profId, descriptor: descritor,
+      consentimento: { aceito:true, aceitoEm: Date.now(), versaoTexto:"v1" },
+      atualizadoEm: Date.now(), atualizadoPor: ESTADO.usuarioDoc.nome,
+    });
+    fechar();
+    alert("Biometria cadastrada com sucesso!");
+    renderPontoDigital();
+  });
+}
+
+async function removerBiometria(profId) {
+  if (!confirm("Remover sua biometria facial cadastrada? Você poderá cadastrar novamente quando quiser, ou usar senha para bater o ponto enquanto isso.")) return;
+  await db.collection("biometriaFacial").doc(profId).delete();
+  renderPontoDigital();
+}
+
+// ---- Bater ponto (com verificação facial ou, na falta dela, senha) ----
+function modalBaterPonto(prof, entidade, tipoSugerido, biometria) {
+  const div = document.createElement("div");
+  div.className = "modal-fundo";
+  div.innerHTML = `
+    <div class="modal">
+      <h3>⏱️ Bater Ponto — ${TIPOS_PONTO.map(t=>`<button type="button" class="btn ${t===tipoSugerido?"btn-primario":"btn-secundario"} btnTipoPonto" data-tipo="${t}" style="padding:6px 10px;margin:2px">${t}</button>`).join("")}</h3>
+      <p id="statusPonto" style="font-size:.85rem;color:#6b7280">Obtendo sua localização...</p>
+      <div id="areaVerificacao"></div>
+      <div class="acoes"><button class="btn btn-secundario" id="mCancelar">Cancelar</button></div>
+    </div>`;
+  document.body.appendChild(div);
+  let tipoEscolhido = tipoSugerido;
+  let geo = null;
+
+  function fechar() { pararCamera(); div.remove(); }
+  div.querySelector("#mCancelar").addEventListener("click", fechar);
+  div.querySelectorAll(".btnTipoPonto").forEach(b => b.addEventListener("click", () => {
+    tipoEscolhido = b.dataset.tipo;
+    div.querySelectorAll(".btnTipoPonto").forEach(x=>x.className = "btn btn-secundario btnTipoPonto");
+    b.className = "btn btn-primario btnTipoPonto";
+  }));
+
+  const status = div.querySelector("#statusPonto");
+  const areaVerificacao = div.querySelector("#areaVerificacao");
+
+  async function checarLocalizacaoEProsseguir() {
+    areaVerificacao.innerHTML = "";
+    status.textContent = "Obtendo sua localização...";
+    try {
+      geo = await obterGeolocalizacao();
+      const temCoordenadaEntidade = entidade?.latitude!=null && entidade?.longitude!=null;
+      const distanciaAtual = temCoordenadaEntidade ? Math.round(distanciaMetros(geo.lat,geo.lng,entidade.latitude,entidade.longitude)) : null;
+      const limite = entidade?.raioMetros || 200;
+      const dentro = temCoordenadaEntidade ? distanciaAtual <= limite : null;
+
+      if (temCoordenadaEntidade) {
+        status.innerHTML = `📍 Localização obtida (precisão ${Math.round(geo.precisao)}m) — distância até o local: <b>${distanciaAtual}m</b> (limite: ${limite}m)`;
+      } else {
+        status.innerHTML = `📍 Localização obtida (precisão ${Math.round(geo.precisao)}m) — este local não tem coordenadas cadastradas, então a distância não está sendo conferida.`;
+      }
+
+      if (dentro === false) {
+        areaVerificacao.innerHTML = `
+          <div class="msg-erro">
+            🚫 Você está a <b>${distanciaAtual}m</b> do local — acima do limite de <b>${limite}m</b> definido pelo Administrador para esta entidade.
+            Aproxime-se do local para conseguir bater o ponto. Se você tem certeza de que está no lugar certo (ex.: prédio grande, sinal de GPS ruim),
+            peça a um gestor para fazer um lançamento manual/justificado.
+          </div>
+          <button class="btn btn-secundario" id="btnTentarNovoLocal" style="width:100%;margin-top:8px">🔄 Tentar novamente</button>`;
+        areaVerificacao.querySelector("#btnTentarNovoLocal").addEventListener("click", checarLocalizacaoEProsseguir);
+        return;
+      }
+
+      mostrarVerificacaoIdentidade();
+    } catch (err) {
+      status.textContent = "⚠️ " + err.message;
+      areaVerificacao.innerHTML = `<button class="btn btn-secundario" id="btnTentarNovoLocal" style="width:100%">🔄 Tentar novamente</button>`;
+      areaVerificacao.querySelector("#btnTentarNovoLocal").addEventListener("click", checarLocalizacaoEProsseguir);
+    }
+  }
+
+  function mostrarVerificacaoIdentidade() {
+    if (biometria) {
+      areaVerificacao.innerHTML = `
+          <video id="videoPonto" autoplay muted playsinline style="width:100%;border-radius:8px;background:#000"></video>
+          <p id="statusFace" style="font-size:.82rem;color:#6b7280;margin-top:6px">Carregando câmera...</p>
+          <button class="btn btn-primario" id="btnConfirmarFace" style="width:100%;margin-top:6px" disabled>Confirmar com biometria facial</button>`;
+      const video = areaVerificacao.querySelector("#videoPonto");
+      const statusFace = areaVerificacao.querySelector("#statusFace");
+      const btnConfirmar = areaVerificacao.querySelector("#btnConfirmarFace");
+      (async () => {
+        await carregarModelosFace();
+        await iniciarCamera(video);
+        statusFace.textContent = "Olhe para a câmera e clique em confirmar.";
+        btnConfirmar.disabled = false;
+      })();
+      btnConfirmar.addEventListener("click", async () => {
+        btnConfirmar.disabled = true; statusFace.textContent = "Verificando rosto...";
+        const descritor = await capturarDescritorFacial(video);
+        if (!descritor) { statusFace.textContent = "Rosto não detectado. Tente novamente com mais luz."; btnConfirmar.disabled = false; return; }
+        const dist = faceapi.euclideanDistance(descritor, biometria.descriptor);
+        const sucesso = dist <= LIMIAR_RECONHECIMENTO_FACIAL;
+        if (!sucesso) { statusFace.textContent = "❌ Rosto não reconhecido. Tente novamente ou peça a um gestor para lançar manualmente."; btnConfirmar.disabled = false; return; }
+        await salvarPonto(prof, entidade, tipoEscolhido, geo, { sucesso:true, distancia:dist });
+        fechar();
+      });
+    } else {
+      areaVerificacao.innerHTML = `
+          <p style="font-size:.82rem;color:#6b7280">Você ainda não cadastrou biometria facial. Confirme sua senha para bater o ponto.</p>
+          <div class="campo"><input type="password" id="senhaPonto" placeholder="Sua senha"></div>
+          <button class="btn btn-primario" id="btnConfirmarSenha" style="width:100%">Confirmar com senha</button>`;
+      areaVerificacao.querySelector("#btnConfirmarSenha").addEventListener("click", async () => {
+        const senha = areaVerificacao.querySelector("#senhaPonto").value;
+        if (!senha) { alert("Digite sua senha."); return; }
+        try {
+          const cred = firebase.auth.EmailAuthProvider.credential(ESTADO.usuario.email, senha);
+          await ESTADO.usuario.reauthenticateWithCredential(cred);
+          await salvarPonto(prof, entidade, tipoEscolhido, geo, { sucesso:false, motivo:"sem_biometria_cadastrada" });
+          fechar();
+        } catch (err) { alert("Senha incorreta."); }
+      });
+    }
+  }
+
+  checarLocalizacaoEProsseguir();
+}
+
+async function salvarPonto(prof, entidade, tipo, geo, verificacaoFacial) {
+  const dentro = (entidade?.latitude!=null && geo?.lat!=null) ? distanciaMetros(geo.lat,geo.lng,entidade.latitude,entidade.longitude) <= (entidade.raioMetros||200) : null;
+  const distanciaMetrosCalc = (entidade?.latitude!=null && geo?.lat!=null) ? Math.round(distanciaMetros(geo.lat,geo.lng,entidade.latitude,entidade.longitude)) : null;
+  await db.collection("pontos").add({
+    profissionalId: prof.id, profissionalNome: prof.nome,
+    entidadeId: entidade?.id||"", entidadeNome: entidade?(entidade.nomeFantasia||entidade.razaoSocial):"",
+    tipo, latitude: geo?.lat??null, longitude: geo?.lng??null, precisao: geo?.precisao??null,
+    distanciaMetros: distanciaMetrosCalc, dentroDoRaio: dentro,
+    verificacaoFacial, manual:false,
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    registradoPor: ESTADO.usuarioDoc.nome,
+  });
+  alert(`Ponto registrado: ${tipo} às ${new Date().toLocaleTimeString("pt-BR")}.`);
+  renderPontoDigital();
+}
+
+async function pontosDeHoje(profId) {
+  const hoje = new Date(); const inicio = new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  const snap = await db.collection("pontos").where("profissionalId","==",profId).get();
+  return snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(p => p.criadoEm?.toDate && p.criadoEm.toDate() >= inicio)
+    .sort((a,b)=>(a.criadoEm?.toMillis()||0)-(b.criadoEm?.toMillis()||0));
+}
+
+function proximoTipoSugerido(registrosHoje) {
+  const tipos = registrosHoje.map(r=>r.tipo);
+  for (const t of TIPOS_PONTO) if (!tipos.includes(t)) return t;
+  return TIPOS_PONTO[0];
+}
+
+async function renderPontoDigital() {
+  const vp = document.getElementById("viewport");
+  vp.innerHTML = `<div class="cartao">Carregando...</div>`;
+  const meuProfId = ESTADO.usuarioDoc.profissionalId;
+  const podeGerenciar = podeEditarTela("ponto");
+  const profissionais = await carregarProfissionais();
+  await carregarEntidades();
+
+  let areaMinha = "";
+  if (meuProfId) {
+    const prof = profissionais.find(p=>p.id===meuProfId);
+    const entidade = prof?.entidadeId ? ESTADO.cacheEntidades.find(e=>e.id===prof.entidadeId) : null;
+    const biometria = await carregarBiometria(meuProfId);
+    const registrosHoje = await pontosDeHoje(meuProfId);
+    const sugerido = proximoTipoSugerido(registrosHoje);
+
+    areaMinha = `
+      <div class="cartao">
+        <h3 style="margin-top:0">Meu Ponto</h3>
+        <p style="font-size:.85rem;color:#6b7280">${prof?.nome||""}${entidade?` — 🏢 ${escapeHtml(entidade.nomeFantasia||entidade.razaoSocial)}`:""}</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+          <span class="badge ${biometria?"badge-verde":"badge-cinza"}">${biometria?"✅ Biometria cadastrada":"Sem biometria cadastrada"}</span>
+          <button class="btn btn-secundario" id="btnCadastrarBio" style="padding:6px 10px">${biometria?"🔄 Atualizar biometria":"📷 Cadastrar biometria facial"}</button>
+          ${biometria?`<button class="btn btn-perigo" id="btnRemoverBio" style="padding:6px 10px">🗑️ Remover biometria</button>`:""}
+        </div>
+        <button class="btn btn-primario" id="btnBaterPonto" style="font-size:1.05rem;padding:14px 24px">⏱️ Bater Ponto agora (${sugerido})</button>
+        <h4 style="margin:18px 0 8px">Meus registros de hoje</h4>
+        <table class="tabela">
+          <thead><tr><th>Horário</th><th>Tipo</th><th>Local</th><th>Verificação</th></tr></thead>
+          <tbody>
+            ${registrosHoje.map(r => `<tr>
+              <td>${r.criadoEm?.toDate ? r.criadoEm.toDate().toLocaleTimeString("pt-BR") : "-"}</td>
+              <td>${r.tipo}</td>
+              <td>${r.dentroDoRaio===null?"-":(r.dentroDoRaio?"✅ Dentro":"⚠️ Fora ("+r.distanciaMetros+"m)")}</td>
+              <td>${r.manual? "✍️ Lançamento manual" : (r.verificacaoFacial?.sucesso ? "😊 Facial" : "🔑 Senha")}</td>
+            </tr>`).join("") || `<tr><td colspan="4">Nenhum registro hoje ainda.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  } else {
+    areaMinha = `<div class="cartao">Seu usuário não está vinculado a um profissional — peça a um Administrador para vincular seu login em "Usuários e Perfis" para poder bater ponto.</div>`;
+  }
+
+  let areaGestor = "";
+  if (podeGerenciar) {
+    const snap = await db.collection("pontos").orderBy("criadoEm","desc").limit(100).get();
+    const registros = snap.docs.map(d=>({id:d.id,...d.data()}));
+    areaGestor = `
+      <div class="cartao">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <h3 style="margin:0">Registros Recentes (todos os profissionais)</h3>
+          <button class="btn btn-secundario" id="btnLancamentoManual">✍️ Lançamento manual/justificado</button>
+        </div>
+        <table class="tabela" style="margin-top:10px">
+          <thead><tr><th>Data/Hora</th><th>Profissional</th><th>Tipo</th><th>Local</th><th>Distância</th><th>Verificação</th></tr></thead>
+          <tbody>
+            ${registros.map(r => `<tr>
+              <td>${r.criadoEm?.toDate ? r.criadoEm.toDate().toLocaleString("pt-BR") : "-"}</td>
+              <td>${escapeHtml(r.profissionalNome)}</td>
+              <td>${r.tipo}</td>
+              <td>${escapeHtml(r.entidadeNome||"-")}</td>
+              <td>${r.dentroDoRaio===null?"-":(r.dentroDoRaio?"✅ Dentro":"⚠️ "+r.distanciaMetros+"m")}</td>
+              <td>${r.manual? `✍️ Manual — ${escapeHtml(r.justificativa||"")}` : (r.verificacaoFacial?.sucesso ? "😊 Facial" : "🔑 Senha")}</td>
+            </tr>`).join("") || `<tr><td colspan="6">Nenhum registro ainda.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  vp.innerHTML = `
+    <div class="cabecalho-pagina"><div><h2>Ponto Digital</h2><div class="desc">Registro de ponto por biometria facial e geolocalização, direto pelo navegador. Os registros são permanentes — nunca editados ou apagados, só corrigidos com um novo lançamento vinculado ao original.</div></div></div>
+    ${areaMinha}
+    ${areaGestor}`;
+
+  document.getElementById("btnCadastrarBio")?.addEventListener("click", () => {
+    const prof = profissionais.find(p=>p.id===meuProfId);
+    modalConsentimentoBiometria(meuProfId, () => modalCadastrarBiometria(meuProfId, prof.nome));
+  });
+  document.getElementById("btnRemoverBio")?.addEventListener("click", () => removerBiometria(meuProfId));
+  document.getElementById("btnBaterPonto")?.addEventListener("click", async () => {
+    const prof = profissionais.find(p=>p.id===meuProfId);
+    const entidade = prof?.entidadeId ? ESTADO.cacheEntidades.find(e=>e.id===prof.entidadeId) : null;
+    const biometria = await carregarBiometria(meuProfId);
+    const registrosHoje = await pontosDeHoje(meuProfId);
+    modalBaterPonto(prof, entidade, proximoTipoSugerido(registrosHoje), biometria);
+  });
+  document.getElementById("btnLancamentoManual")?.addEventListener("click", () => modalLancamentoManualPonto(profissionais));
+}
+
+function modalLancamentoManualPonto(profissionais) {
+  const div = document.createElement("div");
+  div.className = "modal-fundo";
+  div.innerHTML = `
+    <div class="modal">
+      <h3>✍️ Lançamento manual/justificado</h3>
+      <p style="font-size:.8rem;color:#6b7280">Use quando alguém não conseguiu bater o ponto normalmente (falha de câmera, sem sinal etc.). Fica sempre marcado como lançamento manual, com a justificativa, para auditoria.</p>
+      <div class="campo"><label>Profissional</label><select id="lmProf">${profissionais.map(p=>`<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join("")}</select></div>
+      <div class="campos-2">
+        <div class="campo"><label>Data</label><input type="date" id="lmData" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="campo"><label>Horário</label><input type="time" id="lmHora" value="${new Date().toTimeString().slice(0,5)}"></div>
+      </div>
+      <div class="campo"><label>Tipo</label><select id="lmTipo">${TIPOS_PONTO.map(t=>`<option>${t}</option>`).join("")}</select></div>
+      <div class="campo"><label>Justificativa *</label><textarea id="lmJustificativa" rows="3"></textarea></div>
+      <div class="acoes">
+        <button class="btn btn-secundario" id="mCancelar">Cancelar</button>
+        <button class="btn btn-primario" id="mSalvar">Registrar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelector("#mCancelar").addEventListener("click", () => div.remove());
+  div.querySelector("#mSalvar").addEventListener("click", async () => {
+    const justificativa = div.querySelector("#lmJustificativa").value.trim();
+    if (!justificativa) { alert("Informe a justificativa."); return; }
+    const prof = profissionais.find(p=>p.id===div.querySelector("#lmProf").value);
+    const dataStr = div.querySelector("#lmData").value, horaStr = div.querySelector("#lmHora").value;
+    const dataHora = new Date(`${dataStr}T${horaStr}:00`);
+    const entidade = prof?.entidadeId ? ESTADO.cacheEntidades.find(e=>e.id===prof.entidadeId) : null;
+    await db.collection("pontos").add({
+      profissionalId: prof.id, profissionalNome: prof.nome,
+      entidadeId: entidade?.id||"", entidadeNome: entidade?(entidade.nomeFantasia||entidade.razaoSocial):"",
+      tipo: div.querySelector("#lmTipo").value,
+      latitude:null, longitude:null, precisao:null, distanciaMetros:null, dentroDoRaio:null,
+      verificacaoFacial:null, manual:true, justificativa,
+      criadoEm: firebase.firestore.Timestamp.fromDate(dataHora),
+      registradoPor: ESTADO.usuarioDoc.nome,
+    });
+    div.remove();
+    renderPontoDigital();
+  });
 }
 
 // -------------------------------------------------------------------------
