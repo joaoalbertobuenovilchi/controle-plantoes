@@ -27,6 +27,13 @@ const EMAILJS_CONFIG = {
   templateId: "",     // ex.: "template_xxxxxxx"
 };
 
+// E-mail que recebe o aviso quando alguém clica em "Esqueci minha senha" na tela de login
+// (pedindo uma nova senha) — troque para o e-mail do administrador do sistema.
+// Sem o EmailJS configurado acima, este aviso simplesmente não é enviado (mas o e-mail de
+// redefinição de senha do próprio usuário, enviado pelo Firebase, continua funcionando
+// normalmente, pois não depende do EmailJS).
+const EMAIL_ADMINISTRADOR = "joaoalbertobueno@gmail.com";
+
 if (EMAILJS_CONFIG.publicKey && window.emailjs) {
   emailjs.init({ publicKey: EMAILJS_CONFIG.publicKey });
 }
