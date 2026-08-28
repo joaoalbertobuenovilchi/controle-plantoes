@@ -115,5 +115,46 @@ service cloud.firestore {
       allow create: if podeEditarTela('trocas');
       allow update, delete: if false;
     }
+
+    // Controle de tentativas de login erradas (bloqueio de segurança da tela de acesso).
+    // É consultado/gravado ANTES do login (a pessoa ainda não está autenticada), por isso
+    // as regras aqui não podem depender de request.auth — só o próprio formato do dado é
+    // validado: o contador só pode subir de 1 em 1 (nunca "pular" nem diminuir por fora),
+    // e o campo "bloqueado" é sempre travado a "tentativas >= 5" (o próprio Firestore
+    // recusa qualquer valor inconsistente). Ninguém consegue usar isso pra mexer em outra
+    // coisa: o documento só pode ter estes 3 campos, nada além.
+    match /tentativasLogin/{email} {
+      allow get: if true;
+      allow list: if souAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['tentativas','ultimaTentativa','bloqueado'])
+                    && (
+                      (request.resource.data.tentativas == 1 && request.resource.data.bloqueado == false)
+                      || (logado() && request.auth.token.email.lower() == email
+                          && request.resource.data.tentativas == 0 && request.resource.data.bloqueado == false)
+                      || (souAdmin() && request.resource.data.tentativas == 0 && request.resource.data.bloqueado == false)
+                    );
+      allow update: if request.resource.data.keys().hasOnly(['tentativas','ultimaTentativa','bloqueado'])
+                    && (
+                      // uma tentativa errada a mais (nunca pula número, nunca diminui sozinho)
+                      (request.resource.data.tentativas == resource.data.tentativas + 1
+                        && request.resource.data.bloqueado == (request.resource.data.tentativas >= 5))
+                      // a própria pessoa, já autenticada com sucesso, zera o contador dela mesma
+                      || (logado() && request.auth.token.email.lower() == email
+                          && request.resource.data.tentativas == 0 && request.resource.data.bloqueado == false)
+                      // o Administrador pode desbloquear/zerar manualmente a qualquer momento
+                      || (souAdmin() && request.resource.data.tentativas == 0 && request.resource.data.bloqueado == false)
+                    );
+      allow delete: if false;
+    }
+
+    // Log de Acesso: cada sessão é um documento (usuário, data, hora início, hora final,
+    // comandos/telas acessados). Cada pessoa só cria/atualiza os PRÓPRIOS registros de
+    // sessão; só o Administrador consegue ver a lista completa de todo mundo.
+    match /logsAcesso/{id} {
+      allow create: if souAprovado() && request.resource.data.uid == request.auth.uid;
+      allow update: if souAprovado() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
+      allow read, list: if souAdmin();
+      allow delete: if false;
+    }
   }
 }
