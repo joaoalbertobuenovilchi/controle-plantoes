@@ -100,6 +100,8 @@ let ESTADO = {
   cacheCompetenciasFechadas: {},   // { "2026-3": {...} }
   escalaAtual: { setorId: "plantoes", mes: new Date().getMonth()+1, ano: new Date().getFullYear() },
   ultimoRelatorio: null,           // { titulo, colunas:[], linhas:[[...]] } - usado para exportar
+  logSessaoId: null,               // id do documento de log de acesso da sessão atual
+  logComandos: [],                 // comandos/telas acessados nesta sessão (Log de Acesso)
 };
 
 const $app = document.getElementById("app");
@@ -128,6 +130,7 @@ auth.onAuthStateChanged(async (user) => {
   }
   if (!ESTADO.usuarioDoc.ativo) { renderPendente(); return; }
   await carregarDadosIniciais();
+  await iniciarLogSessao();
   renderApp();
 });
 
@@ -142,22 +145,197 @@ function renderLogin() {
       <div id="areaMsg"></div>
       <form id="formLogin">
         <div class="campo"><label>E-mail</label><input type="email" id="loginEmail" required placeholder="seuemail@exemplo.com"></div>
-        <div class="campo"><label>Senha</label><input type="password" id="loginSenha" required placeholder="••••••••"></div>
+        <div class="campo campo-senha">
+          <label>Senha</label>
+          <input type="password" id="loginSenha" required placeholder="••••••••">
+          <button type="button" class="btn-olho" data-alvo="loginSenha" title="Mostrar/ocultar senha">👁️</button>
+        </div>
         <button class="btn btn-primario" type="submit">Entrar</button>
       </form>
+      <button class="link-alt" id="btnEsqueciSenha">Esqueci minha senha</button>
       <button class="link-alt" id="btnAlternarCadastro">Ainda não tenho acesso — criar conta</button>
     </div>
   </div>`;
 
+  document.querySelectorAll(".btn-olho").forEach(b => b.addEventListener("click", () => {
+    const input = document.getElementById(b.dataset.alvo);
+    if (input) input.type = (input.type === "password") ? "text" : "password";
+  }));
+
   document.getElementById("formLogin").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = document.getElementById("loginEmail").value.trim();
+    const email = document.getElementById("loginEmail").value.trim().toLowerCase();
     const senha = document.getElementById("loginSenha").value;
-    try { await auth.signInWithEmailAndPassword(email, senha); }
-    catch (err) { mostrarMsg(traduzErro(err), "erro"); }
+
+    const bloqueio = await verificarBloqueioLogin(email);
+    if (bloqueio.bloqueado) {
+      mostrarMsg("Este usuário está bloqueado após várias tentativas incorretas. Fale com o administrador do sistema para desbloquear.", "erro");
+      return;
+    }
+
+    try {
+      await auth.signInWithEmailAndPassword(email, senha);
+      await resetarTentativasLoginRemoto(email);
+      limparTentativasLocal(email);
+    } catch (err) {
+      const tentativas = registrarTentativaLocalFalha(email);
+      await registrarFalhaLoginRemoto(email);
+      if (tentativas >= 5) {
+        mostrarMsg("Usuário bloqueado após 5 tentativas incorretas. Fale com o administrador do sistema para desbloquear.", "erro");
+      } else if (tentativas === 4) {
+        mostrarMsg(traduzErro(err) + " Atenção: já são 4 tentativas erradas — após a 5ª tentativa este usuário será bloqueado.", "erro");
+      } else {
+        mostrarMsg(traduzErro(err), "erro");
+      }
+    }
   });
 
+  document.getElementById("btnEsqueciSenha").addEventListener("click", esqueciMinhaSenha);
   document.getElementById("btnAlternarCadastro").addEventListener("click", renderCadastro);
+}
+
+// ---- Esqueci minha senha ----
+// O Firebase Authentication é quem guarda a senha de cada pessoa — nem o sistema, nem o
+// administrador, conseguem "ver" ou recuperar a senha anterior (isso é proposital, para
+// proteger todo mundo: se a senha pudesse ser recuperada e viajar por e-mail, ela ficaria
+// exposta). Por isso o fluxo funciona assim:
+// 1) O Firebase envia, AUTOMATICAMENTE e de verdade, um e-mail com um link seguro para o
+//    PRÓPRIO usuário definir uma senha nova (não depende de nenhuma configuração extra).
+// 2) O administrador também recebe um aviso (por e-mail, via EmailJS, se configurado) para
+//    saber que o pedido aconteceu.
+async function esqueciMinhaSenha() {
+  let email = document.getElementById("loginEmail")?.value.trim().toLowerCase();
+  if (!email) email = (prompt("Informe o e-mail da sua conta para receber o link de nova senha:") || "").trim().toLowerCase();
+  if (!email) return;
+  try {
+    await auth.sendPasswordResetEmail(email);
+    mostrarMsg(`Enviamos um e-mail para ${email} com um link seguro para você definir uma nova senha. Confira também a caixa de spam.`, "ok");
+  } catch (err) {
+    mostrarMsg(traduzErro(err), "erro");
+    return;
+  }
+  // Aviso ao administrador (best-effort — não bloqueia o fluxo do usuário se falhar).
+  const corpo = `
+    <p>Um usuário solicitou uma nova senha de acesso ao <b>Controle de Plantões Médicos</b>.</p>
+    <p><b>Usuário (e-mail):</b> ${escapeHtml(email)}<br>
+    <b>Nome:</b> não disponível neste momento (o pedido é feito antes do login)<br>
+    <b>E-mail:</b> ${escapeHtml(email)}<br>
+    <b>Perfil:</b> não disponível neste momento (o pedido é feito antes do login)</p>
+    <p>Um e-mail com um link seguro para redefinir a senha já foi enviado automaticamente pelo Firebase
+    diretamente para o usuário acima. Se quiser confirmar os dados completos (nome e perfil) dessa
+    pessoa, procure pelo e-mail ${escapeHtml(email)} na tela "Usuários e Perfis".</p>`;
+  try { await enviarEmail(EMAIL_ADMINISTRADOR, "Solicitação de nova senha — Controle de Plantões", corpo); }
+  catch (err) { console.warn("Aviso ao administrador não enviado:", err); }
+}
+
+// ---- Bloqueio por tentativas de login ----
+// Guarda um contador de tentativas por e-mail em dois lugares:
+//  - localStorage (neste navegador): mostra o aviso de "4 tentativas" instantaneamente.
+//  - Firestore, coleção "tentativasLogin/{email}": é o que garante o bloqueio de verdade,
+//    valendo em qualquer computador/navegador, não só neste. Precisa das regras do
+//    Firestore atualizadas (veja firestore.rules) para funcionar — se as regras ainda não
+//    tiverem sido publicadas, o aviso de "4 tentativas" deste navegador continua funcionando,
+//    mas o bloqueio de verdade (5ª tentativa) só é aplicado depois de publicá-las.
+function lerTentativasLocal() {
+  try { return JSON.parse(localStorage.getItem("cpm_login_tentativas") || "{}"); } catch (e) { return {}; }
+}
+function salvarTentativasLocal(obj) {
+  try { localStorage.setItem("cpm_login_tentativas", JSON.stringify(obj)); } catch (e) {}
+}
+function registrarTentativaLocalFalha(email) {
+  const t = lerTentativasLocal();
+  t[email] = (t[email] || 0) + 1;
+  salvarTentativasLocal(t);
+  return t[email];
+}
+function limparTentativasLocal(email) {
+  const t = lerTentativasLocal();
+  delete t[email];
+  salvarTentativasLocal(t);
+}
+async function verificarBloqueioLogin(email) {
+  try {
+    const doc = await db.collection("tentativasLogin").doc(email).get();
+    if (doc.exists && doc.data().bloqueado) return { bloqueado: true };
+  } catch (err) { /* regras ainda não publicadas ou offline — segue sem bloqueio remoto */ }
+  return { bloqueado: false };
+}
+async function registrarFalhaLoginRemoto(email) {
+  try {
+    const ref = db.collection("tentativasLogin").doc(email);
+    const doc = await ref.get();
+    if (!doc.exists) {
+      await ref.set({ tentativas: 1, ultimaTentativa: Date.now(), bloqueado: false });
+    } else {
+      const n = (doc.data().tentativas || 0) + 1;
+      await ref.set({ tentativas: n, ultimaTentativa: Date.now(), bloqueado: n >= 5 });
+    }
+  } catch (err) { /* regras ainda não publicadas ou offline — o aviso local continua valendo */ }
+}
+async function resetarTentativasLoginRemoto(email) {
+  try { await db.collection("tentativasLogin").doc(email).set({ tentativas: 0, ultimaTentativa: Date.now(), bloqueado: false }); }
+  catch (err) { /* sem permissão fora de login ainda válido — sem problema, próxima falha recomeça do zero mesmo assim se o doc não existir */ }
+}
+
+// ---- Log de Acesso (só o Administrador vê) ----
+// Registra usuário, data, hora início, hora final e os comandos (telas) acessados em cada
+// sessão. Guardado na coleção "logsAcesso" do Firestore. Cada pessoa só consegue criar/
+// atualizar os PRÓPRIOS registros de sessão (ver firestore.rules); somente o Administrador
+// consegue ler a lista completa de todo mundo.
+async function iniciarLogSessao() {
+  if (ESTADO.logSessaoId) return; // já iniciada nesta aba/sessão
+  const agora = new Date();
+  const dados = {
+    uid: ESTADO.usuario.uid,
+    usuarioNome: ESTADO.usuarioDoc.nome || ESTADO.usuario.email,
+    usuarioEmail: ESTADO.usuario.email,
+    data: agora.toLocaleDateString("pt-BR"),
+    horaInicio: agora.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" }),
+    horaFinal: "",
+    comandos: [],
+    criadoEm: Date.now(),
+  };
+  try {
+    const ref = await db.collection("logsAcesso").add(dados);
+    ESTADO.logSessaoId = ref.id;
+    ESTADO.logComandos = [];
+  } catch (err) { console.warn("Não foi possível iniciar o log de acesso (verifique se as regras do Firestore foram publicadas):", err); }
+}
+function registrarComandoLog(nomeTela) {
+  if (!ESTADO.logSessaoId) return;
+  const agora = new Date();
+  const horaFinal = agora.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" });
+  ESTADO.logComandos.push(`${nomeTela} (${horaFinal})`);
+  db.collection("logsAcesso").doc(ESTADO.logSessaoId).update({ comandos: ESTADO.logComandos, horaFinal }).catch(err => console.warn(err));
+}
+function finalizarLogSessao() {
+  if (!ESTADO.logSessaoId) return;
+  const horaFinal = new Date().toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" });
+  db.collection("logsAcesso").doc(ESTADO.logSessaoId).update({ horaFinal }).catch(() => {});
+}
+window.addEventListener("beforeunload", finalizarLogSessao);
+async function renderLogAcesso() {
+  const vp = document.getElementById("viewport");
+  vp.innerHTML = `<div class="cartao">Carregando...</div>`;
+  const snap = await db.collection("logsAcesso").orderBy("criadoEm", "desc").limit(500).get();
+  const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  vp.innerHTML = `
+    <div class="cabecalho-pagina"><div><h2>Log de Acesso</h2><div class="desc">Quem usou o sistema: usuário, data, hora de início, hora final e as telas acessadas em cada sessão. Mostrando as 500 sessões mais recentes.</div></div></div>
+    <div class="cartao" style="overflow:auto">
+      <table class="tabela">
+        <thead><tr><th>Usuário</th><th>Data</th><th>Hora Início</th><th>Hora Final</th><th>Comandos acessados</th></tr></thead>
+        <tbody>
+          ${logs.length===0 ? `<tr><td colspan="5">Nenhum acesso registrado ainda.</td></tr>` :
+            logs.map(l => `<tr>
+              <td>${escapeHtml(l.usuarioNome || l.usuarioEmail)}</td>
+              <td>${escapeHtml(l.data)}</td>
+              <td>${escapeHtml(l.horaInicio)}</td>
+              <td>${escapeHtml(l.horaFinal) || "—"}</td>
+              <td style="white-space:normal;min-width:280px">${(l.comandos && l.comandos.length) ? escapeHtml(l.comandos.join(" → ")) : "—"}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function renderCadastro() {
@@ -170,12 +348,21 @@ function renderCadastro() {
       <form id="formCadastro">
         <div class="campo"><label>Nome completo</label><input type="text" id="cadNome" required></div>
         <div class="campo"><label>E-mail</label><input type="email" id="cadEmail" required></div>
-        <div class="campo"><label>Senha (mín. 6 caracteres)</label><input type="password" id="cadSenha" minlength="6" required></div>
+        <div class="campo campo-senha">
+          <label>Senha (mín. 6 caracteres)</label>
+          <input type="password" id="cadSenha" minlength="6" required>
+          <button type="button" class="btn-olho" data-alvo="cadSenha" title="Mostrar/ocultar senha">👁️</button>
+        </div>
         <button class="btn btn-primario" type="submit">Criar conta</button>
       </form>
       <button class="link-alt" id="btnVoltarLogin">Já tenho conta — entrar</button>
     </div>
   </div>`;
+
+  document.querySelectorAll(".btn-olho").forEach(b => b.addEventListener("click", () => {
+    const input = document.getElementById(b.dataset.alvo);
+    if (input) input.type = (input.type === "password") ? "text" : "password";
+  }));
 
   document.getElementById("formCadastro").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -214,6 +401,7 @@ function traduzErro(err) {
     "auth/email-already-in-use": "Este e-mail já está cadastrado.",
     "auth/weak-password": "Senha muito curta (mínimo 6 caracteres).",
     "auth/invalid-credential": "E-mail ou senha incorretos.",
+    "auth/too-many-requests": "Muitas tentativas seguidas. Aguarde um pouco antes de tentar de novo.",
   };
   return map[err.code] || ("Erro: " + err.message);
 }
@@ -297,7 +485,7 @@ function nivelAcesso(telaBase) {
   if (!perfil) return "nenhum";
   return perfil.permissoes?.[telaBase] || "nenhum";
 }
-function podeVerTela(id) { return nivelAcesso(telaBaseDe(id)) !== "nenhum"; }
+function podeVerTela(id) { if (id === "log-acesso") return ESTADO.usuarioDoc.perfil === "administrador"; return nivelAcesso(telaBaseDe(id)) !== "nenhum"; }
 function podeEditarTela(id) { return nivelAcesso(telaBaseDe(id)) === "editar"; }
 
 function montarNav() {
@@ -317,6 +505,7 @@ function montarNav() {
     { id:"relatorios", label:"Relatórios", icone:"📈" },
     { id:"fechamento", label:"Fechamento", icone:"🧾" },
     { id:"dashboard", label:"Painel Geral", icone:"📊" },
+    { id:"log-acesso", label:"Log de Acesso", icone:"📜" },
   ];
 }
 
@@ -343,6 +532,7 @@ function renderApp() {
         <div class="rodape-lateral">
           <div>${escapeHtml(ESTADO.usuarioDoc.nome)}</div>
           <span class="perfil-tag">${nomePerfil(perfil)}</span>
+          <button id="btnTrocarMinhaSenha" style="margin-top:6px">🔑 Alterar minha senha</button>
           <button id="btnSair">Sair do sistema</button>
         </div>
       </div>
@@ -357,10 +547,12 @@ function renderApp() {
     document.getElementById("barraLateral").classList.remove("aberta");
     renderApp();
   }));
-  document.getElementById("btnSair").addEventListener("click", () => auth.signOut());
+  document.getElementById("btnSair").addEventListener("click", () => { finalizarLogSessao(); ESTADO.logSessaoId = null; auth.signOut(); });
+  document.getElementById("btnTrocarMinhaSenha").addEventListener("click", modalTrocarSenha);
   document.getElementById("btnMenuMobile").addEventListener("click", () => document.getElementById("barraLateral").classList.toggle("aberta"));
 
   if (!podeAcessar(NAV, ESTADO.telaAtual)) ESTADO.telaAtual = "dashboard";
+  registrarComandoLog(NAV.find(n => n.id === ESTADO.telaAtual)?.label || ESTADO.telaAtual);
 
   if (ESTADO.telaAtual.startsWith("escala-")) { renderEscala(ESTADO.telaAtual.replace("escala-","")); return; }
 
@@ -378,11 +570,65 @@ function renderApp() {
     "competencias": renderCompetencias,
     "trocas": renderTrocas,
     "usuarios": renderUsuarios,
+    "log-acesso": renderLogAcesso,
   };
   (rotas[ESTADO.telaAtual] || renderDashboard)();
 }
 
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// ---- Alterar minha senha (self-service) ----
+// Este é o único lugar do sistema em que dá para checar "a senha nova não pode ser igual à
+// anterior": o Firebase Authentication nunca revela a senha atual para o sistema (nem em
+// hash) — só aqui, no momento em que a própria pessoa digita a senha atual E a nova, é
+// possível comparar as duas. Nas redefinições feitas por link de e-mail (Firebase) essa
+// checagem não é possível, pois o link não passa pelo nosso sistema.
+function modalTrocarSenha() {
+  const div = document.createElement("div");
+  div.className = "modal-fundo";
+  div.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <h3>🔑 Alterar minha senha</h3>
+      <div id="areaMsgTrocarSenha"></div>
+      <div class="campo campo-senha">
+        <label>Senha atual</label>
+        <input type="password" id="tsSenhaAtual" autocomplete="current-password">
+        <button type="button" class="btn-olho" data-alvo="tsSenhaAtual" title="Mostrar/ocultar senha">👁️</button>
+      </div>
+      <div class="campo campo-senha">
+        <label>Senha nova (mín. 6 caracteres)</label>
+        <input type="password" id="tsSenhaNova" minlength="6" autocomplete="new-password">
+        <button type="button" class="btn-olho" data-alvo="tsSenhaNova" title="Mostrar/ocultar senha">👁️</button>
+      </div>
+      <div class="acoes">
+        <button class="btn btn-secundario" id="tsCancelar">Cancelar</button>
+        <button class="btn btn-primario" id="tsSalvar" style="width:auto">Salvar nova senha</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelectorAll(".btn-olho").forEach(b => b.addEventListener("click", () => {
+    const input = div.querySelector("#" + b.dataset.alvo);
+    if (input) input.type = (input.type === "password") ? "text" : "password";
+  }));
+  div.querySelector("#tsCancelar").addEventListener("click", () => div.remove());
+  div.querySelector("#tsSalvar").addEventListener("click", async () => {
+    const areaMsg = div.querySelector("#areaMsgTrocarSenha");
+    const senhaAtual = div.querySelector("#tsSenhaAtual").value;
+    const senhaNova = div.querySelector("#tsSenhaNova").value;
+    if (!senhaAtual || !senhaNova) { areaMsg.innerHTML = `<div class="msg-erro">Preencha a senha atual e a nova senha.</div>`; return; }
+    if (senhaNova.length < 6) { areaMsg.innerHTML = `<div class="msg-erro">A nova senha precisa ter pelo menos 6 caracteres.</div>`; return; }
+    if (senhaNova === senhaAtual) { areaMsg.innerHTML = `<div class="msg-erro">A nova senha não pode ser igual à senha anterior.</div>`; return; }
+    try {
+      const cred = firebase.auth.EmailAuthProvider.credential(ESTADO.usuario.email, senhaAtual);
+      await ESTADO.usuario.reauthenticateWithCredential(cred);
+      await ESTADO.usuario.updatePassword(senhaNova);
+      areaMsg.innerHTML = `<div class="msg-ok">Senha alterada com sucesso!</div>`;
+      setTimeout(() => div.remove(), 1200);
+    } catch (err) {
+      areaMsg.innerHTML = `<div class="msg-erro">${escapeHtml(traduzErro(err))}</div>`;
+    }
+  });
+}
 function fmtMoeda(v) { return (v || 0).toLocaleString("pt-BR", { style:"currency", currency:"BRL" }); }
 function corTexto(hex) {
   if (!hex) return "#111";
@@ -3019,6 +3265,7 @@ async function renderUsuarios() {
               ${podeEditar ? `<td>
                 <button class="btn btn-sucesso salvarUsuario" style="padding:6px 10px">Salvar</button>
                 <button class="btn btn-secundario resetarSenha" style="padding:6px 10px">🔑 Redefinir senha</button>
+                <button class="btn btn-secundario desbloquearTentativas" style="padding:6px 10px" title="Zera o contador de tentativas de login erradas desta pessoa">🔓 Desbloquear tentativas</button>
                 ${u.ativo ? `<button class="btn btn-perigo bloquearUsuario" style="padding:6px 10px">Bloquear</button>` : ""}
               </td>` : ""}
             </tr>`).join("")}
@@ -3057,6 +3304,13 @@ async function renderUsuarios() {
       const email = tr.children[1].textContent;
       try { await auth.sendPasswordResetEmail(email); alert(`E-mail de redefinição de senha enviado para ${email}.`); }
       catch (err) { alert("Não foi possível enviar: " + err.message); }
+    });
+    tr.querySelector(".desbloquearTentativas").addEventListener("click", async () => {
+      const email = tr.children[1].textContent.trim().toLowerCase();
+      try {
+        await db.collection("tentativasLogin").doc(email).set({ tentativas: 0, ultimaTentativa: Date.now(), bloqueado: false });
+        alert(`Tentativas de login de ${email} zeradas — a pessoa já pode tentar entrar de novo.`);
+      } catch (err) { alert("Não foi possível desbloquear: " + err.message); }
     });
   });
 }
